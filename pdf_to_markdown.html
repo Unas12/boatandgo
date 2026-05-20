@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF → Markdown</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f4;
+      color: #1c1917;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 16px 64px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      color: #0c0a09;
+    }
+
+    header p {
+      margin-top: 6px;
+      font-size: 0.9rem;
+      color: #78716c;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e7e5e4;
+      border-radius: 16px;
+      padding: 28px;
+      width: 100%;
+      max-width: 640px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      border: 2px dashed #d6d3d1;
+      border-radius: 12px;
+      padding: 36px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      position: relative;
+    }
+
+    .upload-zone:hover,
+    .upload-zone.drag-over {
+      border-color: #a8a29e;
+      background: #fafaf9;
+    }
+
+    .upload-zone.has-file {
+      border-color: #16a34a;
+      background: #f0fdf4;
+    }
+
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .upload-icon {
+      font-size: 2rem;
+      margin-bottom: 10px;
+      display: block;
+    }
+
+    .upload-label {
+      font-size: 0.95rem;
+      color: #57534e;
+    }
+
+    .upload-label strong {
+      color: #0c0a09;
+    }
+
+    .file-name {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: #16a34a;
+      font-weight: 500;
+      word-break: break-all;
+    }
+
+    /* ── Convert button ── */
+    .btn-convert {
+      display: block;
+      width: 100%;
+      margin-top: 20px;
+      padding: 13px;
+      background: #0c0a09;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+      letter-spacing: 0.2px;
+    }
+
+    .btn-convert:hover:not(:disabled) { background: #292524; }
+    .btn-convert:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* ── Result area ── */
+    .result-wrapper {
+      margin-top: 28px;
+      display: none;
+    }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .result-header span {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #78716c;
+    }
+
+    .btn-copy, .btn-download {
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 7px;
+      border: 1px solid #e7e5e4;
+      background: #fff;
+      color: #44403c;
+      cursor: pointer;
+      transition: background .12s;
+    }
+
+    .btn-copy:hover, .btn-download:hover { background: #f5f5f4; }
+
+    .result-actions { display: flex; gap: 8px; }
+
+    textarea#output {
+      width: 100%;
+      min-height: 300px;
+      padding: 16px;
+      font-family: "Menlo", "Consolas", "Liberation Mono", monospace;
+      font-size: 0.82rem;
+      line-height: 1.65;
+      color: #1c1917;
+      background: #fafaf9;
+      border: 1px solid #e7e5e4;
+      border-radius: 10px;
+      resize: vertical;
+      outline: none;
+      transition: border-color .15s;
+    }
+
+    textarea#output:focus { border-color: #a8a29e; }
+
+    /* ── Status / progress ── */
+    #status {
+      margin-top: 14px;
+      font-size: 0.83rem;
+      color: #78716c;
+      text-align: center;
+      min-height: 20px;
+    }
+
+    #status.error { color: #dc2626; }
+    #status.success { color: #16a34a; }
+
+    footer {
+      margin-top: 40px;
+      font-size: 0.78rem;
+      color: #a8a29e;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>PDF → Markdown</h1>
+    <p>Drop a PDF and get clean Markdown in seconds — all in your browser.</p>
+  </header>
+
+  <div class="card">
+
+    <!-- Upload -->
+    <div class="upload-zone" id="dropZone">
+      <input type="file" id="pdfInput" accept=".pdf" />
+      <span class="upload-icon">📄</span>
+      <p class="upload-label"><strong>Click to upload</strong> or drag & drop</p>
+      <p class="upload-label" style="font-size:.8rem;margin-top:4px;color:#a8a29e;">PDF files only</p>
+      <p class="file-name" id="fileName"></p>
+    </div>
+
+    <!-- Convert -->
+    <button class="btn-convert" id="convertBtn" disabled>Convert to Markdown</button>
+
+    <!-- Status -->
+    <p id="status"></p>
+
+    <!-- Result -->
+    <div class="result-wrapper" id="resultWrapper">
+      <div class="result-header">
+        <span>Result</span>
+        <div class="result-actions">
+          <button class="btn-copy" id="copyBtn">Copy</button>
+          <button class="btn-download" id="downloadBtn">Download .md</button>
+        </div>
+      </div>
+      <textarea id="output" readonly></textarea>
+    </div>
+
+  </div>
+
+  <footer>Runs entirely in your browser — no data is uploaded anywhere.</footer>
+
+  <script>
+    // Point pdf.js worker at the CDN copy
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    const pdfInput   = document.getElementById("pdfInput");
+    const dropZone   = document.getElementById("dropZone");
+    const fileName   = document.getElementById("fileName");
+    const convertBtn = document.getElementById("convertBtn");
+    const status     = document.getElementById("status");
+    const output     = document.getElementById("output");
+    const resultWrapper = document.getElementById("resultWrapper");
+    const copyBtn    = document.getElementById("copyBtn");
+    const downloadBtn = document.getElementById("downloadBtn");
+
+    let selectedFile = null;
+
+    // ── File selection ──────────────────────────────────────────
+    function handleFile(file) {
+      if (!file || file.type !== "application/pdf") {
+        setStatus("Please select a valid PDF file.", "error");
+        return;
+      }
+      selectedFile = file;
+      fileName.textContent = file.name;
+      dropZone.classList.add("has-file");
+      convertBtn.disabled = false;
+      setStatus("");
+      resultWrapper.style.display = "none";
+    }
+
+    pdfInput.addEventListener("change", e => handleFile(e.target.files[0]));
+
+    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+    dropZone.addEventListener("drop", e => {
+      e.preventDefault();
+      dropZone.classList.remove("drag-over");
+      handleFile(e.dataTransfer.files[0]);
+    });
+
+    // ── Conversion ──────────────────────────────────────────────
+    convertBtn.addEventListener("click", async () => {
+      if (!selectedFile) return;
+
+      convertBtn.disabled = true;
+      setStatus("Reading PDF…");
+      resultWrapper.style.display = "none";
+
+      try {
+        const arrayBuffer = await selectedFile.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const totalPages = pdf.numPages;
+
+        const pageBlocks = [];
+
+        for (let p = 1; p <= totalPages; p++) {
+          setStatus(`Processing page ${p} of ${totalPages}…`);
+          const page = await pdf.getPage(p);
+          const textContent = await page.getTextContent();
+          pageBlocks.push(extractMarkdownFromPage(textContent, p, totalPages));
+        }
+
+        const markdown = pageBlocks.join("\n\n---\n\n").trim();
+        output.value = markdown;
+        resultWrapper.style.display = "block";
+        setStatus(`Done — ${totalPages} page${totalPages > 1 ? "s" : ""} converted.`, "success");
+      } catch (err) {
+        setStatus("Failed to parse PDF: " + err.message, "error");
+        console.error(err);
+      } finally {
+        convertBtn.disabled = false;
+      }
+    });
+
+    // ── PDF text → Markdown ─────────────────────────────────────
+    function extractMarkdownFromPage(textContent, pageNum, totalPages) {
+      if (!textContent.items.length) return `<!-- Page ${pageNum}: no text found -->`;
+
+      // Group items into lines by their y-position
+      const lines = [];
+      let lastY = null;
+      let currentLine = [];
+
+      for (const item of textContent.items) {
+        if (!item.str) continue;
+        const y = Math.round(item.transform[5]);
+        if (lastY === null) lastY = y;
+
+        if (Math.abs(y - lastY) > 2) {
+          if (currentLine.length) lines.push({ y: lastY, items: currentLine });
+          currentLine = [];
+          lastY = y;
+        }
+        currentLine.push(item);
+      }
+      if (currentLine.length) lines.push({ y: lastY, items: currentLine });
+
+      // Sort by y descending (PDF coords: top = high y)
+      lines.sort((a, b) => b.y - a.y);
+
+      // Collect font sizes to determine heading thresholds
+      const allSizes = lines.flatMap(l => l.items.map(i => i.height || 0)).filter(s => s > 0);
+      const bodySize  = median(allSizes);
+      const h1Thresh  = bodySize * 1.6;
+      const h2Thresh  = bodySize * 1.3;
+      const h3Thresh  = bodySize * 1.1;
+
+      const mdLines = [];
+
+      for (const line of lines) {
+        const text = line.items.map(i => i.str).join(" ").replace(/\s+/g, " ").trim();
+        if (!text) continue;
+
+        const maxSize = Math.max(...line.items.map(i => i.height || 0));
+        const isBold  = line.items.some(i => (i.fontName || "").toLowerCase().includes("bold"));
+
+        let prefix = "";
+        if (maxSize >= h1Thresh) {
+          prefix = "# ";
+        } else if (maxSize >= h2Thresh) {
+          prefix = "## ";
+        } else if (maxSize >= h3Thresh && isBold) {
+          prefix = "### ";
+        } else if (isBold && text.length < 80) {
+          prefix = "**";
+          mdLines.push(`**${text}**`);
+          continue;
+        }
+
+        // Detect bullet-like lines
+        const bulletMatch = text.match(/^([•·▪▸‣◦\-–—*])\s+(.+)/);
+        if (bulletMatch) {
+          mdLines.push(`- ${bulletMatch[2]}`);
+          continue;
+        }
+
+        // Detect numbered lists (1. or 1)
+        const numMatch = text.match(/^(\d+)[.)]\s+(.+)/);
+        if (numMatch) {
+          mdLines.push(`${numMatch[1]}. ${numMatch[2]}`);
+          continue;
+        }
+
+        mdLines.push(prefix + text);
+      }
+
+      return mdLines.join("\n");
+    }
+
+    function median(arr) {
+      if (!arr.length) return 12;
+      const sorted = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    // ── Copy & Download ─────────────────────────────────────────
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(output.value).then(() => {
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => (copyBtn.textContent = "Copy"), 1800);
+      });
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      const blob = new Blob([output.value], { type: "text/markdown" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      const base = selectedFile ? selectedFile.name.replace(/\.pdf$/i, "") : "output";
+      a.href     = url;
+      a.download = base + ".md";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // ── Helpers ─────────────────────────────────────────────────
+    function setStatus(msg, type = "") {
+      status.textContent = msg;
+      status.className = type;
+    }
+  </script>
+</body>
+</html>
